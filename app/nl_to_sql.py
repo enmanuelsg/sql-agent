@@ -9,6 +9,11 @@ def convert_nl_to_sql(user_query: str) -> str:
     Converts a natural language query about predictive maintenance into an SQL query.
     Uses GPT-4's function calling feature.
     """
+
+    MAX_CHAR_LIMIT = 600
+    if len(user_query) > MAX_CHAR_LIMIT:
+        user_query = user_query[:MAX_CHAR_LIMIT]
+
     # Define the function schema that GPT-4 should follow
     function_definition = {
         "name": "nl_to_sql",
@@ -42,7 +47,8 @@ def convert_nl_to_sql(user_query: str) -> str:
 
     # Call the OpenAI Chat API with function calling enabled
     response = openai.ChatCompletion.create(
-        model="gpt-4-0613",
+        model="gpt-4o-mini",
+        #model="gpt-4-0613",
         messages=messages,
         functions=[function_definition],
         function_call="auto",  # Let the model decide if a function call is needed
