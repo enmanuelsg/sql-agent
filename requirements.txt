@@ -1,0 +1,5 @@
+pandas
+openai
+langchain
+streamlit
+langchain_community
