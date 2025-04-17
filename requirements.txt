@@ -1,5 +1,5 @@
-pandas
-openai
-langchain
-streamlit
-langchain_community
+pandas>=2.2.0
+openai==0.28.0
+langchain==0.3.23
+langchain-community==0.3.21
+streamlit>=1.44.0
