@@ -66,7 +66,7 @@ tools = [
 ]
 
 # Initialize the LangChain agent with an OpenAI LLM.
-llm = ChatOpenAI(temperature=0, model_name="gpt-4-0613")
+llm = ChatOpenAI(temperature=0, model_name="gpt-4o-mini")
 agent = initialize_agent(tools, llm, agent="zero-shot-react-description", verbose=True)
 
 def main():

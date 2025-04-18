@@ -37,10 +37,7 @@ def convert_nl_to_sql(user_query: str) -> str:
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are an assistant that converts natural language queries about predictive maintenance "
-                "into corresponding SQL queries. Only return a valid SQL query in a structured JSON format."
-            )
+            "content": "Convert natural language to SQL for predictive maintenance database with tables: PdM_machines, PdM_maint, PdM_failures, PdM_telemetry, PdM_errors."
         },
         {"role": "user", "content": user_query}
     ]
