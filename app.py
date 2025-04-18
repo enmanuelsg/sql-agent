@@ -1,4 +1,5 @@
 # app.py
+import os
 import chainlit as cl
 from langchain.agents import Tool, initialize_agent
 from langchain_community.chat_models import ChatOpenAI
@@ -12,6 +13,10 @@ import ast
 from app.nl_to_sql import convert_nl_to_sql
 from utils.db_utils import execute_query, get_schema_info
 from langchain.agents import AgentExecutor
+from utils.plot_utils import generate_plot
+import pandas as pd
+
+
 
 # Define a custom prompt template for our specific task
 class PredictiveMaintenancePromptTemplate(StringPromptTemplate):
@@ -62,6 +67,24 @@ def execute_sql_tool(sql_query: str) -> str:
     # Return a string representation of the result dictionary
     return json.dumps(result)
 
+def plot_tool(params: str) -> str:
+    """
+    params is a JSON string like:
+      { "sql": "...", "x": "date", "y": "error_count", "group_by": "date" }
+    """
+    args = json.loads(params)
+    # 1) run the SQL
+    result = execute_query(args["sql"])
+    records = result.get("data", [])
+
+    # 2) turn list-of-dicts into a DataFrame
+    df = pd.DataFrame(records)
+    if df.empty:
+        raise ValueError("No data returned for plotting.")
+
+    # 3) delegate to your utility to build & save the PNG
+    return generate_plot(df, args["x"], args["y"], "/tmp/plot.png")
+
 def get_schema_tool(input_text: str) -> str:
     """Tool to get database schema for debugging"""
     schema_info = get_schema_info()
@@ -82,6 +105,15 @@ tools = [
         name="Schema Info Tool",
         func=get_schema_tool,
         description="Gets the database schema with all table names and their columns for reference."
+    ),
+    Tool(
+    name="Plotting Tool",
+    func=plot_tool,
+    description=(
+      "Given a JSON string with keys sql, x, y, (and optional group_by), "
+      "runs the query, builds a Matplotlib plot, saves it to disk, "
+      "and returns the image file path."
+    )
     )
 ]
 
@@ -106,6 +138,8 @@ IMPORTANT DATABASE INFORMATION:
 
 Available tools:
 {tools}
+
+If the user asks for a visualization, generate a JSON parameter object and call the Plotting Tool.
 
 User question: {input}
 
@@ -228,11 +262,25 @@ async def on_chat_start():
 async def on_message(message: cl.Message):
     agent: AgentExecutor = cl.user_session.get("agent")
 
-    # this returns a dict with `intermediate_steps`
+    # Run the agent and grab all steps
     result = agent({"input": message.content})
-    steps = result["intermediate_steps"]    # list of (AgentAction, observation) tuples
+    steps = result["intermediate_steps"]  # list of (AgentAction, observation) tuples
 
-    # find the SQL Execution Tool output
+    # 1) If the Plotting Tool was called
+    for action, obs in steps:
+        if action.tool == "Plotting Tool":
+            # if it's an image path, send it via path parameter
+            if isinstance(obs, str) and obs.lower().endswith(".png"):
+                try:
+                    await cl.Image(path=obs).send(for_id=message.id)
+                except Exception as e:
+                    await cl.Message(content=f"❌ Failed to send plot image: {e}").send()
+                return
+            # otherwise show the tool error
+            await cl.Message(content=f"❌ Plotting Tool error:\n{obs}").send()
+            return
+
+    # 2) Otherwise, look for SQL Execution output as before
     sql_json = None
     for action, obs in steps:
         if action.tool == "SQL Execution Tool":
@@ -244,7 +292,6 @@ async def on_message(message: cl.Message):
         return
 
     # build the three parts
-    # Part 1: extract machineID if present
     m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql_json["query"], re.IGNORECASE)
     desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
 
@@ -254,3 +301,4 @@ async def on_message(message: cl.Message):
 
     reply = "\n\n".join([part1, part2, part3])
     await cl.Message(content=reply).send()
+

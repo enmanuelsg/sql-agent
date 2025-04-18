@@ -5,3 +5,5 @@ langchain-community==0.3.21
 streamlit>=1.44.0
 chainlit
 tabulate
+plotly
+matplotlib
