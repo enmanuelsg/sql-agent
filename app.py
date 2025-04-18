@@ -248,9 +248,9 @@ async def on_message(message: cl.Message):
     m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql_json["query"], re.IGNORECASE)
     desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
 
-    part1 = f"**Part 1:** {desc}"
-    part2 = f"**Part 2:**\n{sql_json['markdown_table']}"
-    part3 = f"**Part 3:** Used query: {sql_json['query']}"
+    part1 = f"**Summary :** {desc}"
+    part2 = f"**Info :**\n{sql_json['markdown_table']}"
+    part3 = f"-> Used query: {sql_json['query']}"
 
     reply = "\n\n".join([part1, part2, part3])
     await cl.Message(content=reply).send()
