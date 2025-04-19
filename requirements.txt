@@ -7,3 +7,4 @@ chainlit
 tabulate
 plotly
 matplotlib
+kaleido
