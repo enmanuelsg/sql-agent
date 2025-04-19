@@ -309,25 +309,39 @@ async def on_chat_start():
 async def on_message(message: cl.Message):
     agent: AgentExecutor = cl.user_session.get("agent")
 
-    # Run the agent and grab all steps
+    # 1) Run the agent and collect all steps
     result = agent({"input": message.content})
-    steps = result["intermediate_steps"]  # list of (AgentAction, observation) tuples
+    steps = result["intermediate_steps"]  # list of (AgentAction, observation)
 
-    # 1) If the Plotting Tool was called
+    # 2) Handle Plotting Tool responses, preserving three-part structure
     for action, obs in steps:
         if action.tool == "Plotting Tool":
-            # if it's an image path, send it via path parameter
+            # Extract SQL from the tool input JSON
+            params = json.loads(action.tool_input)
+            sql = params.get("sql", "")
+
+            # Build Part 1 description
+            m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql, re.IGNORECASE)
+            desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
+
+            # Part 1 – Summary
+            await cl.Message(content=f"**Summary:** {desc}").send()
+
+            # Part 2 – Plot image or error
             if isinstance(obs, str) and obs.lower().endswith(".png"):
-                try:
-                    await cl.Image(path=obs).send(for_id=message.id)
-                except Exception as e:
-                    await cl.Message(content=f"❌ Failed to send plot image: {e}").send()
-                return
-            # otherwise show the tool error
-            await cl.Message(content=f"❌ Plotting Tool error:\n{obs}").send()
+                plot_el = cl.Image(path=obs, name="plot", display="inline")
+                await cl.Message(
+                    content="**Plot:**",
+                    elements=[plot_el]
+                ).send()
+            else:
+                await cl.Message(content=f"❌ Plotting Tool error:\n{obs}").send()
+
+            # Part 3 – SQL query used
+            await cl.Message(content=f"**Used query:** {sql}").send()
             return
 
-    # 2) Otherwise, look for SQL Execution output as before
+    # 3) Handle SQL Execution Tool responses (table output)
     sql_json = None
     for action, obs in steps:
         if action.tool == "SQL Execution Tool":
@@ -338,14 +352,14 @@ async def on_message(message: cl.Message):
         await cl.Message(content="❌ I never executed the SQL tool!").send()
         return
 
-    # build the three parts
+    # Build description for Part 1
     m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql_json["query"], re.IGNORECASE)
     desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
 
-    part1 = f"**Summary :** {desc}"
-    part2 = f"**Info :**\n{sql_json['markdown_table']}"
-    part3 = f"-> Used query: {sql_json['query']}"
+    # Compose the three parts
+    part1 = f"**Summary:** {desc}"
+    part2 = f"**Table:**\n{sql_json['markdown_table']}"
+    part3 = f"**Used query:** {sql_json['query']}"
 
-    reply = "\n\n".join([part1, part2, part3])
-    await cl.Message(content=reply).send()
-
+    # Send all three parts in one message
+    await cl.Message(content="\n\n".join([part1, part2, part3])).send()
