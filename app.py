@@ -70,20 +70,41 @@ def execute_sql_tool(sql_query: str) -> str:
 def plot_tool(params: str) -> str:
     """
     params is a JSON string like:
-      { "sql": "...", "x": "date", "y": "error_count", "group_by": "date" }
+      {
+        "sql": "...",
+        "x": "date",
+        "y": "error_count",
+        "chart_type": "pie",
+        "title": "Errors by Machine",
+        "xlabel": "Machine ID",
+        "ylabel": "Count"
+      }
     """
+
     args = json.loads(params)
-    # 1) run the SQL
+
+    # 1) run the SQL and load into DataFrame
     result = execute_query(args["sql"])
     records = result.get("data", [])
-
-    # 2) turn list-of-dicts into a DataFrame
     df = pd.DataFrame(records)
     if df.empty:
         raise ValueError("No data returned for plotting.")
 
-    # 3) delegate to your utility to build & save the PNG
-    return generate_plot(df, args["x"], args["y"], "/tmp/plot.png")
+    # 2) pick chart type (default to line)
+    chart_type = args.get("chart_type", "line")
+
+    # 3) delegate to the plot utility
+    return generate_plot(
+        df=df,
+        x=args.get("x"),
+        y=args.get("y"),
+        output_path="/tmp/plot.png",
+        chart_type=chart_type,
+        title=args.get("title"),
+        xlabel=args.get("xlabel"),
+        ylabel=args.get("ylabel"),
+    )
+
 
 def get_schema_tool(input_text: str) -> str:
     """Tool to get database schema for debugging"""
@@ -110,9 +131,8 @@ tools = [
     name="Plotting Tool",
     func=plot_tool,
     description=(
-      "Given a JSON string with keys sql, x, y, (and optional group_by), "
-      "runs the query, builds a Matplotlib plot, saves it to disk, "
-      "and returns the image file path."
+    "Given a JSON string with keys sql, x, y, and optional chart_type ('line' or 'pie'), "
+    "runs the query, builds the specified Plotly chart, saves it to disk, and returns the image path."
     )
     )
 ]
@@ -139,7 +159,34 @@ IMPORTANT DATABASE INFORMATION:
 Available tools:
 {tools}
 
-If the user asks for a visualization, generate a JSON parameter object and call the Plotting Tool.
+If the user asks for a visualization, call the Plotting Tool with a JSON object containing:
+  • sql: the SQL string to execute  
+  • x: the column for categories or the x‑axis  
+  • y: the column for values or the y‑axis  
+  • chart_type: "line" or "pie"  
+  • (optional) title, xlabel, ylabel  
+
+Examples:
+  Q: "Show me a line plot of errors by date in January."  
+  → Action: Plotting Tool  
+    Action Input:
+    {{
+      "sql": "SELECT date, COUNT(errorID) AS errorCount\n  FROM PdM_errors\n  WHERE strftime('%m', date) = '01'\n  GROUP BY date",
+      "x": "date",
+      "y": "errorCount",
+      "chart_type": "line"
+    }}
+
+  Q: "I want a pie chart that counts errors grouped by machine ID."  
+  → Action: Plotting Tool  
+    Action Input:
+    {{
+      "sql": "SELECT machineID, COUNT(*) AS errorCount\n  FROM PdM_errors\n  GROUP BY machineID",
+      "x": "machineID",
+      "y": "errorCount",
+      "chart_type": "pie"
+    }}
+
 
 User question: {input}
 
