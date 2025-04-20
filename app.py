@@ -7,7 +7,6 @@ OUTPUT_PATH = str(PLOT_OUTPUT_DIR / DEFAULT_PLOT_FILENAME)
 
 import chainlit as cl
 from langchain_community.chat_models import ChatOpenAI
-from langchain.prompts import StringPromptTemplate
 from langchain.agents import Tool, initialize_agent, AgentExecutor, AgentOutputParser
 from langchain.schema import AgentAction, AgentFinish
 from typing import Union, List
@@ -17,105 +16,8 @@ import ast
 
 from config import OPENAI_MODEL_NAME, OPENAI_TEMPERATURE
 from app.tools import tools
+from app.prompt import PredictiveMaintenancePromptTemplate, template
 from utils.db_utils import get_schema_info
-
-
-# Define a custom prompt template for our specific task
-class PredictiveMaintenancePromptTemplate(StringPromptTemplate):
-    template: str
-    tools: List[Tool]
-    
-    def format(self, **kwargs) -> str:
-        # Get the intermediate steps (AgentAction, Observation tuples)
-        intermediate_steps = kwargs.pop("intermediate_steps")
-        
-        thoughts = ""
-        for action, observation in intermediate_steps:
-            thoughts += f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}\n"
-        
-        # Set the agent_scratchpad variable to contain the intermediate steps
-        kwargs["agent_scratchpad"] = thoughts
-        kwargs["tools"] = "\n".join([f"{tool.name}: {tool.description}" for tool in self.tools])
-        kwargs["tool_names"] = ", ".join([tool.name for tool in self.tools])
-        
-        return self.template.format(**kwargs)
-
-# Define your custom output parser for the three-part format
-class ThreePartOutputParser(AgentOutputParser):
-    def parse(self, text: str) -> Union[AgentAction, AgentFinish]:
-        # Check if the agent is still thinking through the problem
-        if "Action:" in text:
-            action_match = re.search(r"Action: (.*?)[\n]", text)
-            action_input_match = re.search(r"Action Input: (.*)", text)
-            
-            if not action_match or not action_input_match:
-                raise ValueError(f"Could not parse action and action input from text: {text}")
-            
-            action = action_match.group(1).strip()
-            action_input = action_input_match.group(1).strip()
-            
-            return AgentAction(tool=action, tool_input=action_input, log=text)
-        
-        # If no more actions, then the agent is done
-        return AgentFinish(return_values={"output": text}, log=text)
-
-# Define the template for the agent with explicit instructions about the database schema
-template = """You are a helpful assistant that analyzes predictive maintenance data for machines.
-Your task is to answer user questions by composing and executing SQL queries using the provided tools, and then formatting the results in exactly three parts.
-
-**Part 1:** A very brief description of what the result shows (1–2 sentences max).
-**Part 2:** A Markdown table of the SQL query output.
-**Part 3:** A single-line statement indicating the exact SQL query that was used.
-
-IMPORTANT: You must follow these steps in order, without skipping:
-1. ALWAYS call the NL-to-SQL Tool to generate a valid SQL query based on the user's question.
-2. THEN ALWAYS call the SQL Execution Tool using the query from step 1.
-3. Do NOT provide any final answer until you have received and inspected the JSON response from the SQL Execution Tool.
-4. Your final answer must strictly follow the three-part structure above.
-
-IMPORTANT DATABASE INFORMATION:
-- Column names use camelCase: e.g., machineID (not machine_id).
-- Available tables: PdM_machines, PdM_telemetry, PdM_errors, PdM_maint, PdM_failures.
-- If a query fails, first use the Schema Info Tool to verify table and column names.
-
-Available tools:
-{tools}
-
-If the user asks for a visualization, call the Plotting Tool with a JSON object containing:
-  • sql: the SQL string to execute  
-  • x: the column for categories or the x‑axis  
-  • y: the column for values or the y‑axis  
-  • chart_type: "line" or "pie"  
-  • (optional) title, xlabel, ylabel  
-
-Examples:
-  Q: "Show me a line plot of errors by date in January."  
-  → Action: Plotting Tool  
-    Action Input:
-    {{
-      "sql": "SELECT date, COUNT(errorID) AS errorCount\n  FROM PdM_errors\n  WHERE strftime('%m', date) = '01'\n  GROUP BY date",
-      "x": "date",
-      "y": "errorCount",
-      "chart_type": "line"
-    }}
-
-  Q: "I want a pie chart that counts errors grouped by machine ID."  
-  → Action: Plotting Tool  
-    Action Input:
-    {{
-      "sql": "SELECT machineID, COUNT(*) AS errorCount\n  FROM PdM_errors\n  GROUP BY machineID",
-      "x": "machineID",
-      "y": "errorCount",
-      "chart_type": "pie"
-    }}
-
-
-User question: {input}
-
-{agent_scratchpad}
-
-Now begin:
-"""
 
 
 prompt = PredictiveMaintenancePromptTemplate(
@@ -230,61 +132,67 @@ async def on_chat_start():
     print("Database Schema Information:")
     print(schema_info)
 
+
+async def _process_agent_response(agent: AgentExecutor, user_input: str):
+    """Invoke the LangChain agent and return the list of (action, observation)."""
+    result = agent({"input": user_input})
+    return result["intermediate_steps"]
+
+async def _handle_plotting_response(action: AgentAction, observation: str):
+    """Send the three-part plotting response back to the user."""
+    params = json.loads(action.tool_input)
+    sql = params.get("sql", "")
+    # Part 1 – summary
+    m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql, re.IGNORECASE)
+    desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
+    await cl.Message(content=f"**Summary:** {desc}").send()
+
+    # Part 2 – plot image or error
+    if isinstance(observation, str) and observation.lower().endswith(".png"):
+        plot_el = cl.Image(path=observation, name="plot", display="inline")
+        await cl.Message(content="**Plot:**", elements=[plot_el]).send()
+    else:
+        await cl.Message(content=f"❌ Plotting Tool error:\n{observation}").send()
+
+    # Part 3 – the SQL query
+    await cl.Message(content=f"**Used query:** {sql}").send()
+
+async def _handle_sql_response(action: AgentAction, observation: str):
+    """Send the three-part SQL table response back to the user."""
+    sql_json = json.loads(observation)
+    # Part 1 – summary
+    query = sql_json.get("query", "")
+    m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", query, re.IGNORECASE)
+    desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
+    part1 = f"**Summary:** {desc}"
+
+    # Part 2 – table
+    table = sql_json.get("markdown_table", "No results returned.")
+    part2 = f"**Table:**\n{table}"
+
+    # Part 3 – query
+    part3 = f"**Used query:** {query}"
+
+    await cl.Message(content="\n\n".join([part1, part2, part3])).send()
+
 @cl.on_message
 async def on_message(message: cl.Message):
     agent: AgentExecutor = cl.user_session.get("agent")
 
-    # 1) Run the agent and collect all steps
-    result = agent({"input": message.content})
-    steps = result["intermediate_steps"]  # list of (AgentAction, observation)
+    # 1) Invoke agent
+    steps = await _process_agent_response(agent, message.content)
 
-    # 2) Handle Plotting Tool responses, preserving three-part structure
+    # 2) If any plotting action, handle and return immediately
     for action, obs in steps:
         if action.tool == "Plotting Tool":
-            # Extract SQL from the tool input JSON
-            params = json.loads(action.tool_input)
-            sql = params.get("sql", "")
-
-            # Build Part 1 description
-            m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql, re.IGNORECASE)
-            desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
-
-            # Part 1 – Summary
-            await cl.Message(content=f"**Summary:** {desc}").send()
-
-            # Part 2 – Plot image or error
-            if isinstance(obs, str) and obs.lower().endswith(".png"):
-                plot_el = cl.Image(path=obs, name="plot", display="inline")
-                await cl.Message(
-                    content="**Plot:**",
-                    elements=[plot_el]
-                ).send()
-            else:
-                await cl.Message(content=f"❌ Plotting Tool error:\n{obs}").send()
-
-            # Part 3 – SQL query used
-            await cl.Message(content=f"**Used query:** {sql}").send()
+            await _handle_plotting_response(action, obs)
             return
 
-    # 3) Handle SQL Execution Tool responses (table output)
-    sql_json = None
+    # 3) Else if any SQL action, handle and return
     for action, obs in steps:
         if action.tool == "SQL Execution Tool":
-            sql_json = json.loads(obs)
-            break
+            await _handle_sql_response(action, obs)
+            return
 
-    if not sql_json:
-        await cl.Message(content="❌ I never executed the SQL tool!").send()
-        return
-
-    # Build description for Part 1
-    m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql_json["query"], re.IGNORECASE)
-    desc = f"These are the errors for machine id {m.group(1)}." if m else "Here are your results."
-
-    # Compose the three parts
-    part1 = f"**Summary:** {desc}"
-    part2 = f"**Table:**\n{sql_json['markdown_table']}"
-    part3 = f"**Used query:** {sql_json['query']}"
-
-    # Send all three parts in one message
-    await cl.Message(content="\n\n".join([part1, part2, part3])).send()
+    # 4) No recognized tool run
+    await cl.Message(content="❌ I never executed the SQL tool!").send()
