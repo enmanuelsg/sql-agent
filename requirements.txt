@@ -8,3 +8,4 @@ tabulate
 plotly
 matplotlib
 kaleido
+python-dotenv
