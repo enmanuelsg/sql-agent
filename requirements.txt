@@ -3,3 +3,9 @@ openai==0.28.0
 langchain==0.3.23
 langchain-community==0.3.21
 streamlit>=1.44.0
+chainlit
+tabulate
+plotly
+matplotlib
+kaleido
+python-dotenv
