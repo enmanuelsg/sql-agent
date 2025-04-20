@@ -1,24 +1,23 @@
 # app.py
-import os
-import chainlit as cl
-from langchain.agents import Tool, initialize_agent
-from langchain_community.chat_models import ChatOpenAI
-from langchain.prompts import StringPromptTemplate
-from langchain.agents import AgentOutputParser
-from langchain.schema import AgentAction, AgentFinish
-from typing import Union, List, Any, Dict
-import re
-import json
-import ast
-from app.nl_to_sql import convert_nl_to_sql
-from utils.db_utils import execute_query, get_schema_info
-from langchain.agents import AgentExecutor
-from utils.plot_utils import generate_plot
 import pandas as pd
 from config import OPENAI_MODEL_NAME, OPENAI_TEMPERATURE
 from config import PLOT_OUTPUT_DIR, DEFAULT_PLOT_FILENAME
 
 OUTPUT_PATH = str(PLOT_OUTPUT_DIR / DEFAULT_PLOT_FILENAME)
+
+import chainlit as cl
+from langchain_community.chat_models import ChatOpenAI
+from langchain.prompts import StringPromptTemplate
+from langchain.agents import Tool, initialize_agent, AgentExecutor, AgentOutputParser
+from langchain.schema import AgentAction, AgentFinish
+from typing import Union, List
+import re
+import json
+import ast
+
+from config import OPENAI_MODEL_NAME, OPENAI_TEMPERATURE
+from app.tools import tools
+from utils.db_utils import get_schema_info
 
 
 # Define a custom prompt template for our specific task
@@ -59,86 +58,6 @@ class ThreePartOutputParser(AgentOutputParser):
         
         # If no more actions, then the agent is done
         return AgentFinish(return_values={"output": text}, log=text)
-
-# Define tools
-def nl_to_sql_tool(input_text: str) -> str:
-    return convert_nl_to_sql(input_text)
-
-def execute_sql_tool(sql_query: str) -> str:
-    result = execute_query(sql_query)
-    
-    # Return a string representation of the result dictionary
-    return json.dumps(result)
-
-def plot_tool(params: str) -> str:
-    """
-    params is a JSON string like:
-      {
-        "sql": "...",
-        "x": "date",
-        "y": "error_count",
-        "chart_type": "pie",
-        "title": "Errors by Machine",
-        "xlabel": "Machine ID",
-        "ylabel": "Count"
-      }
-    """
-
-    args = json.loads(params)
-
-    # 1) run the SQL and load into DataFrame
-    result = execute_query(args["sql"])
-    records = result.get("data", [])
-    df = pd.DataFrame(records)
-    if df.empty:
-        raise ValueError("No data returned for plotting.")
-
-    # 2) pick chart type (default to line)
-    chart_type = args.get("chart_type", "line")
-
-    # 3) delegate to the plot utility
-    return generate_plot(
-        df=df,
-        x=args.get("x"),
-        y=args.get("y"),
-        output_path=OUTPUT_PATH,
-        chart_type=chart_type,
-        title=args.get("title"),
-        xlabel=args.get("xlabel"),
-        ylabel=args.get("ylabel"),
-    )
-
-
-def get_schema_tool(input_text: str) -> str:
-    """Tool to get database schema for debugging"""
-    schema_info = get_schema_info()
-    return json.dumps(schema_info)
-
-tools = [
-    Tool(
-        name="NL-to-SQL Tool",
-        func=nl_to_sql_tool,
-        description="Converts a natural language query about predictive maintenance into a SQL query."
-    ),
-    Tool(
-        name="SQL Execution Tool",
-        func=execute_sql_tool,
-        description="Executes a SQL query on the predictive maintenance database and returns the results as a JSON string with markdown formatting."
-    ),
-    Tool(
-        name="Schema Info Tool",
-        func=get_schema_tool,
-        description="Gets the database schema with all table names and their columns for reference."
-    ),
-    Tool(
-    name="Plotting Tool",
-    func=plot_tool,
-    description=(
-    "Given a JSON string with keys sql, x, y, and optional chart_type ('line' or 'pie'), "
-    "runs the query, builds the specified Plotly chart, saves it to disk, and returns the image path."
-    )
-    )
-]
 
 # Define the template for the agent with explicit instructions about the database schema
 template = """You are a helpful assistant that analyzes predictive maintenance data for machines.
@@ -299,7 +218,6 @@ agent = initialize_agent(
     agent="zero-shot-react-description", 
     verbose=True,
     prompt=prompt,
-    #output_parser=ThreePartOutputParser()
     return_intermediate_steps=True,
 )
 
