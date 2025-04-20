@@ -15,7 +15,10 @@ from utils.db_utils import execute_query, get_schema_info
 from langchain.agents import AgentExecutor
 from utils.plot_utils import generate_plot
 import pandas as pd
+from config import OPENAI_MODEL_NAME, OPENAI_TEMPERATURE
+from config import PLOT_OUTPUT_DIR, DEFAULT_PLOT_FILENAME
 
+OUTPUT_PATH = str(PLOT_OUTPUT_DIR / DEFAULT_PLOT_FILENAME)
 
 
 # Define a custom prompt template for our specific task
@@ -98,7 +101,7 @@ def plot_tool(params: str) -> str:
         df=df,
         x=args.get("x"),
         y=args.get("y"),
-        output_path="/tmp/plot.png",
+        output_path=OUTPUT_PATH,
         chart_type=chart_type,
         title=args.get("title"),
         xlabel=args.get("xlabel"),
@@ -285,7 +288,11 @@ Unable to format results as a table.
     return "I couldn't process your request properly. Please try rephrasing your question."
 
 # Initialize LangChain agent
-llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
+#llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
+llm = ChatOpenAI(
+    model_name=OPENAI_MODEL_NAME,
+    temperature=OPENAI_TEMPERATURE
+)
 agent = initialize_agent(
     tools, 
     llm, 
