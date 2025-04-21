@@ -9,71 +9,50 @@ class PredictiveMaintenancePromptTemplate(StringPromptTemplate):
     tools: List[Tool]
     
     def format(self, **kwargs) -> str:
-        # Get the intermediate steps (AgentAction, Observation tuples)
+        # Collate intermediate tool calls and observations
         intermediate_steps = kwargs.pop("intermediate_steps")
-        
         thoughts = ""
         for action, observation in intermediate_steps:
             thoughts += f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}\n"
         
-        # Set the agent_scratchpad variable to contain the intermediate steps
+        # Prepare template variables
         kwargs["agent_scratchpad"] = thoughts
         kwargs["tools"] = "\n".join([f"{tool.name}: {tool.description}" for tool in self.tools])
         kwargs["tool_names"] = ", ".join([tool.name for tool in self.tools])
         
         return self.template.format(**kwargs)
 
-
-# Define the template for the agent with explicit instructions about the database schema
-template = """You are a helpful assistant that analyzes predictive maintenance data for machines.
-Your task is to answer user questions by composing and executing SQL queries using the provided tools, and then formatting the results in exactly three parts.
-
-**Part 1:** A very brief description of what the result shows (1–2 sentences max).
-**Part 2:** A Markdown table of the SQL query output.
-**Part 3:** A single-line statement indicating the exact SQL query that was used.
-
-IMPORTANT: You must follow these steps in order, without skipping:
-1. ALWAYS call the NL-to-SQL Tool to generate a valid SQL query based on the user's question.
-2. THEN ALWAYS call the SQL Execution Tool using the query from step 1.
-3. Do NOT provide any final answer until you have received and inspected the JSON response from the SQL Execution Tool.
-4. Your final answer must strictly follow the three-part structure above.
-
-IMPORTANT DATABASE INFORMATION:
-- Column names use camelCase: e.g., machineID (not machine_id).
-- Available tables: PdM_machines, PdM_telemetry, PdM_errors, PdM_maint, PdM_failures.
-- If a query fails, first use the Schema Info Tool to verify table and column names.
+# Updated prompt with strict multi-step logic
+template = """
+You are a helpful assistant that analyzes predictive maintenance data for machines.
+Your task is to answer user questions by interacting with the available tools in a specific sequence and formatting the final result appropriately.
 
 Available tools:
 {tools}
 
-If the user asks for a visualization, call the Plotting Tool with a JSON object containing:
-  • sql: the SQL string to execute  
-  • x: the column for categories or the x‑axis  
-  • y: the column for values or the y‑axis  
-  • chart_type: "line" or "pie"  
-  • (optional) title, xlabel, ylabel  
+STRICT PROCESS:
+0. If the user input is unintelligible or outside scope (gibberish), immediately respond: ❌ I couldn't understand your query. Please rephrase.
+1. ALWAYS call the "NL-to-SQL Tool" first for any request that requires data or plotting. Do NOT use the "Schema Info Tool" unless the user explicitly asks for the database schema.
+2. Wait for the NL-to-SQL output.
+   - If it fails to generate a valid SQL, stop and report the error.
+   - If successful, take the SQL query.
+3. Based on the user's intent:
+   - For tabular data: call "SQL Execution Tool" with the SQL.
+   - For visualizations: assemble a JSON with keys sql, x, y, chart_type (and optional title, xlabel, ylabel) and call "Plotting Tool".
+4. Format the FINAL answer based only on the last tool's observation:
+   - SQL Execution success: Part 1 summary, Part 2 markdown table, Part 3 SQL query.
+   - SQL Execution failure: Part 1 error summary, Part 2 error details, Part 3 SQL query.
+   - Plotting success: Part 1 summary, Part 2 inline image, Part 3 SQL query.
+   - Plotting failure: Part 1 summary, Part 2 error message, Part 3 SQL query.
+   - Schema Info: simply display the schema details.
+5. Do NOT include any other content or steps.
 
-Examples:
-  Q: "Show me a line plot of errors by date in January."  
-  → Action: Plotting Tool  
-    Action Input:
-    {{
-      "sql": "SELECT date, COUNT(errorID) AS errorCount\n  FROM PdM_errors\n  WHERE strftime('%m', date) = '01'\n  GROUP BY date",
-      "x": "date",
-      "y": "errorCount",
-      "chart_type": "line"
-    }}
-
-  Q: "I want a pie chart that counts errors grouped by machine ID."  
-  → Action: Plotting Tool  
-    Action Input:
-    {{
-      "sql": "SELECT machineID, COUNT(*) AS errorCount\n  FROM PdM_errors\n  GROUP BY machineID",
-      "x": "machineID",
-      "y": "errorCount",
-      "chart_type": "pie"
-    }}
-
+Database schema (for reference – rely on NL-to-SQL Tool):
+- PdM_machines (machineID, model, age)
+- PdM_telemetry (machineID, volt, rotate, pressure, vibration, date, time)
+- PdM_errors (machineID, errorID, date, time)
+- PdM_maint (machineID, comp, date, time)
+- PdM_failures (machineID, failure, date, time)
 
 User question: {input}
 
