@@ -1,13 +1,9 @@
-# app/nl_to_sql.py
 import os
 import openai
 import json
 from dotenv import load_dotenv
 
-#load_dotenv()
-#openai.api_key = os.getenv("OPENAI_API_KEY")
-
-from config import OPENAI_API_KEY
+from config import OPENAI_API_KEY, OPENAI_MODEL_NAME
 openai.api_key = OPENAI_API_KEY
 
 def convert_nl_to_sql(user_query: str) -> str:
@@ -20,7 +16,6 @@ def convert_nl_to_sql(user_query: str) -> str:
     if len(user_query) > MAX_CHAR_LIMIT:
         user_query = user_query[:MAX_CHAR_LIMIT]
 
-    # Define the function schema with CORRECT column names
     function_definition = {
         "name": "nl_to_sql",
         "description": (
@@ -39,7 +34,6 @@ def convert_nl_to_sql(user_query: str) -> str:
         }
     }
 
-    # Compose the messages with explicit schema information
     messages = [
         {
             "role": "system",
@@ -58,12 +52,11 @@ def convert_nl_to_sql(user_query: str) -> str:
         {"role": "user", "content": user_query}
     ]
 
-    # Call the OpenAI Chat API with function calling enabled
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",  # Using 3.5 to reduce costs
+        model=OPENAI_MODEL_NAME,
         messages=messages,
         functions=[function_definition],
-        function_call="auto",  # Let the model decide if a function call is needed
+        function_call="auto",
         max_tokens=150,
         temperature=0,
     )
