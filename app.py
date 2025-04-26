@@ -20,7 +20,8 @@ prompt = PredictiveMaintenancePromptTemplate(
 
 llm = ChatOpenAI(
     model_name=OPENAI_MODEL_NAME,
-    temperature=OPENAI_TEMPERATURE
+    temperature=OPENAI_TEMPERATURE,
+    streaming=True
 )
 # Enable parsing errors to be surfaced
 agent = initialize_agent(
@@ -79,24 +80,29 @@ async def _handle_sql_response(action: AgentAction, observation: str):
 async def on_message(message: cl.Message):
     agent: AgentExecutor = cl.user_session.get("agent")
 
-    # 1) Run agent and get all steps
-    steps = await _process_agent_response(agent, message.content)
+    # Ejecuta el agente con streaming y logging de tools en la UI
+    result = await agent.acall(
+        {"input": message.content},
+        callbacks=[cl.LangchainCallbackHandler(stream_final_answer=True)]
+    )
 
+    steps = result.get("intermediate_steps", [])
     if not steps:
-        # Error already sent by _process_agent_response
         return
 
-    # 2) Check plotting
+    # 1) Check plotting
     for action, obs in steps:
         if action.tool == "Plotting Tool":
             await _handle_plotting_response(action, obs)
             return
 
-    # 3) Check SQL
+    # 2) Check SQL
     for action, obs in steps:
         if action.tool == "SQL Execution Tool":
             await _handle_sql_response(action, obs)
             return
 
-    # 4) No tool used (likely a parsing error or fallback)
-    await cl.Message(content="❌ I never executed a recognized tool. Please rephrase your query or ask for schema info.").send()
+    # 3) Fallback
+    await cl.Message(
+        content="❌ I never executed a recognized tool. Please rephrase your query or ask for schema info."
+    ).send()
