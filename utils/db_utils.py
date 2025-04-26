@@ -5,7 +5,8 @@ import pandas as pd
 import traceback
 
 # Define the database path; adjust if needed
-DB_PATH = os.path.join("data", "PdM_database.db")
+#DB_PATH = os.path.join("data", "PdM_database.db")
+from config import DB_PATH
 
 def execute_query(query: str) -> dict:
     """
