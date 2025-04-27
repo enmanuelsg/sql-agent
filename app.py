@@ -55,25 +55,25 @@ async def _handle_plotting_response(action: AgentAction, observation: str):
     sql = params.get("sql", "")
     m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql, re.IGNORECASE)
     desc = f"Pie chart of errors for machine id {m.group(1)}." if m else "Generated pie chart."
-    await cl.Message(content=f"**Part 1:** {desc}").send()
+    await cl.Message(content=f"**Summary:** {desc}").send()
 
     if isinstance(observation, str) and observation.lower().endswith(".png"):
         img = cl.Image(path=observation, name="plot", display="inline")
-        await cl.Message(content="**Part 2:**", elements=[img]).send()
+        await cl.Message(content="**Result:**", elements=[img]).send()
     else:
-        await cl.Message(content=f"**Part 2:** Plotting error: {observation}").send()
+        await cl.Message(content=f"**Result:** Plotting error: {observation}").send()
 
-    await cl.Message(content=f"**Part 3:** Used query: {sql}").send()
+    await cl.Message(content=f"**Query used:** Used query: {sql}").send()
 
 async def _handle_sql_response(action: AgentAction, observation: str):
     sql_json = json.loads(observation)
     query = sql_json.get("query", "")
     m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", query, re.IGNORECASE)
     desc = f"Results for machine id {m.group(1)}." if m else "Query results."
-    part1 = f"**Part 1:** {desc}"
+    part1 = f"**Summary:** {desc}"
     table = sql_json.get("markdown_table", "No results.")
-    part2 = f"**Part 2:**\n{table}"
-    part3 = f"**Part 3:** Used query: {query}"
+    part2 = f"*Result:**\n{table}"
+    part3 = f"**Query used:** Used query: {query}"
     await cl.Message(content="\n\n".join([part1, part2, part3])).send()
 
 @cl.on_message
@@ -83,7 +83,7 @@ async def on_message(message: cl.Message):
     # Ejecuta el agente con streaming y logging de tools en la UI
     result = await agent.acall(
         {"input": message.content},
-        callbacks=[cl.LangchainCallbackHandler(stream_final_answer=True)]
+        callbacks=[cl.LangchainCallbackHandler(stream_final_answer=False)]
     )
 
     steps = result.get("intermediate_steps", [])
