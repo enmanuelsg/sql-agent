@@ -50,12 +50,16 @@ async def _process_agent_response(agent: AgentExecutor, user_input: str):
         await cl.Message(content=f"❌ Agent error: {e}").send()
         return []
 
-async def _handle_plotting_response(action: AgentAction, observation: str):
+async def _handle_plotting_response(
+    action: AgentAction,
+    observation: str,
+    final_answer: str
+):
     params = json.loads(action.tool_input)
     sql = params.get("sql", "")
-    m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", sql, re.IGNORECASE)
-    desc = f"Pie chart of errors for machine id {m.group(1)}." if m else "Generated pie chart."
-    await cl.Message(content=f"**Summary:** {desc}").send()
+
+    # Usamos el final_answer como Summary
+    await cl.Message(content=f"**Summary:** {final_answer}").send()
 
     if isinstance(observation, str) and observation.lower().endswith(".png"):
         img = cl.Image(path=observation, name="plot", display="inline")
@@ -63,18 +67,22 @@ async def _handle_plotting_response(action: AgentAction, observation: str):
     else:
         await cl.Message(content=f"**Result:** Plotting error: {observation}").send()
 
-    await cl.Message(content=f"**Query used:** Used query: {sql}").send()
+    await cl.Message(content=f"**SQL Used:** {sql}").send()
 
-async def _handle_sql_response(action: AgentAction, observation: str):
+
+async def _handle_sql_response(
+    action: AgentAction,
+    observation: str,
+    final_answer: str
+):
     sql_json = json.loads(observation)
     query = sql_json.get("query", "")
-    m = re.search(r"WHERE\s+machineID\s*=\s*(\d+)", query, re.IGNORECASE)
-    desc = f"Results for machine id {m.group(1)}." if m else "Query results."
-    part1 = f"**Summary:** {desc}"
     table = sql_json.get("markdown_table", "No results.")
-    part2 = f"*Result:**\n{table}"
-    part3 = f"**Query used:** Used query: {query}"
-    await cl.Message(content="\n\n".join([part1, part2, part3])).send()
+
+    # Usamos el final_answer como Summary
+    await cl.Message(content=f"**Summary:** {final_answer}").send()
+    await cl.Message(content=f"**Result:**\n{table}").send()
+    await cl.Message(content=f"**SQL Used:** {query}").send()
 
 @cl.on_message
 async def on_message(message: cl.Message):
@@ -87,19 +95,20 @@ async def on_message(message: cl.Message):
     )
 
     steps = result.get("intermediate_steps", [])
+    final_answer = result.get("output", "").strip()
     if not steps:
         return
 
     # 1) Check plotting
     for action, obs in steps:
         if action.tool == "Plotting Tool":
-            await _handle_plotting_response(action, obs)
+            await _handle_plotting_response(action, obs, final_answer)
             return
 
     # 2) Check SQL
     for action, obs in steps:
         if action.tool == "SQL Execution Tool":
-            await _handle_sql_response(action, obs)
+            await _handle_sql_response(action, obs, final_answer)
             return
 
     # 3) Fallback
