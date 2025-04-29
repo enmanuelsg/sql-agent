@@ -1,97 +1,43 @@
-# SQL‑Chatbot POC
+# Predictive Maintenance Chatbot
 
-A simple proof‑of‑concept chatbot that translates natural‑language queries into SQL and runs them against a local SQLite database. Built with Streamlit, LangChain, and OpenAI’s GPT-4 function‑calling API.
+An interactive chat interface that lets you ask questions about your SQL data in everyday language and then presents the results as tables or visual charts.
 
 ## Features
+- Convert natural language into SQL via OpenAI  
+- Execute queries on SQLite  
+- Generate inline tables and charts with Plotly
 
-- ✅ Natural‑language → SQL conversion via GPT‑4  
-- ✅ SQLite backend (`data/PdM_database.db`)  
-- ✅ Streamlit UI for interactive querying  
-- ✅ Extensible “tools” architecture (NL→SQL + SQL execution)  
+## Prerequisites
+- Python 3.8+  
+- `OPENAI_API_KEY` in your environment
 
-## Requirements
+## Setup
 
-- Python 3.8+  
-- OpenAI API key (set `OPENAI_API_KEY`)  
-- A virtual environment (recommended)
+### Windows
+1. `git clone https://github.com/enmanuelsg/sql-agent.git && cd sql-agent`  
+2. `python -m venv .venv`  
+3. `.venv\Scripts\activate`  
+4. Create `.env` with  
+   ```ini
+   OPENAI_API_KEY=your_key_here
+   ```  
+5. `pip install -r requirements.txt`
 
-## Installation
+### Linux/macOS
+1. `git clone https://github.com/enmanuelsg/sql-agent.git && cd sql-agent`  
+2. `python3 -m venv .venv`  
+3. `source .venv/bin/activate`  
+4. Create `.env` as above  
+5. `pip install -r requirements.txt`
 
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/<your‑username>/sql-chatbot.git
-   cd sql-chatbot
-   ```
-2. Create & activate a venv:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Linux/Mac
-   .venv\Scripts\activate         # Windows
-   ```
-3. Install dependencies:
-   ```bash
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
-4. (Optional) If you need to rebuild the database from a CSV:
-   ```bash
-   python data/csv_to_sqlite.py
-   ```
-
-## Configuration
-
-- Copy your OpenAI API key into your environment:
-  ```bash
-  export OPENAI_API_KEY="sk‑…"
-  ```
-- Ensure `data/PdM_database.db` exists and has the tables:
-  - `PdM_machines(machineID, model, age)`
-  - `PdM_maint(datetime, machineID, comp)`
-  - `PdM_errors(datetime, machineID, errorID)`
-  - `PdM_failures(datetime, machineID, failure)`
-  - `PdM_telemetry(datetime, machineID, volt, rotate, pressure, vibration)`
-
-## Usage
-
-1. **Test NL→SQL conversion**  
-   ```bash
-   python app/nl_to_sql.py
-   # Should print a sample SQL for your test query
-   ```
-2. **Run the Streamlit chatbot**  
-   ```bash
-   streamlit run app/main.py
-   ```
-3. In your browser, enter queries such as:  
-   - `Show me the maintenance history for machineID 1`  
-   - `Count errors per day for machineID 1`
-
-## Project Structure
-
+## Run
+```bash
+chainlit run app.py
 ```
-sql-chat/
-├── README.md
-├── requirements.txt
-├── data/
-│   ├── PdM_database.db     ← pre‑built SQLite database
-│   ├── raw.csv             ← original CSV dataset
-│   └── csv_to_sqlite.py    ← script to import CSV into SQLite
-├── app/
-│   ├── main.py             ← Streamlit UI + agent orchestration
-│   └── nl_to_sql.py        ← GPT‑4 function‑calling NL→SQL module
-└── utils/
-    └── db_utils.py         ← SQLite query helper functions
-```
+Open the local URL in your browser. http://localhost:8000/
 
-## Contributing
-
-This is a minimal POC—feel free to:
-- Add schema autodiscovery  
-- Improve prompt templates for complex queries  
-- Swap to a production‑grade DB (PostgreSQL, MySQL)  
-- Migrate to LangGraph or another agent framework  
-
----
-
-Built as a quick demo of AI‑powered conversational database querying.  
-```
+## Query Examples
+- `Show me a list of all the macineid that exist and his age`
+- `In a line plot: show me the average vibration by date for machineID 1`
+- `Show me a pie chart that counts errors grouped by machine ID`
+- `Genera un gráfico lineal con cantidad de mantenimientos por fecha para el mes de marzo`
