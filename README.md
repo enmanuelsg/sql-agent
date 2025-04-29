@@ -36,7 +36,7 @@ chainlit run app.py
 ```
 Open the local URL in your browser. http://localhost:8000/
 
-## Query Examples
+## Examples of queries
 - `Show me a list of all the macineid that exist and his age`
 - `In a line plot: show me the average vibration by date for machineID 1`
 - `Show me a pie chart that counts errors grouped by machine ID`
