@@ -1,7 +1,7 @@
-# utils/plot_utils.py
 import pandas as pd
 import os
-import plotly.express as px
+import matplotlib.pyplot as plt
+
 
 def generate_plot(
     df: pd.DataFrame,
@@ -13,29 +13,49 @@ def generate_plot(
     xlabel: str = None,
     ylabel: str = None,
 ) -> str:
+    """
+    Generate and save a plot using matplotlib.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing the data.
+        x (str): Column name for the x-axis or labels.
+        y (str): Column name for the y-axis or values.
+        output_path (str): File path to save the output image.
+        chart_type (str, optional): 'line' or 'pie'. Defaults to 'line'.
+        title (str, optional): Plot title. Defaults to None.
+        xlabel (str, optional): Label for x-axis. Defaults to None.
+        ylabel (str, optional): Label for y-axis. Defaults to None.
+
+    Returns:
+        str: Path to the saved image file.
+    """
+    # Ensure output directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     if chart_type == "line":
-        fig = px.line(
-            df,
-            x=x,
-            y=y,
-            title=title or f"{y} vs {x}",
-            labels={x: xlabel or x, y: ylabel or y}
-        )
-        fig.update_traces(mode="markers+lines")
+        # Line plot with markers
+        plt.figure()
+        plt.plot(df[x], df[y], marker='o')
+        plt.title(title or f"{y} vs {x}")
+        plt.xlabel(xlabel or x)
+        plt.ylabel(ylabel or y)
 
     elif chart_type == "pie":
-        # x = grouping column, y = numeric value column
-        fig = px.pie(
-            df,
-            names=x,
-            values=y,
-            title=title or f"{y} by {x}"
+        # Pie chart
+        plt.figure()
+        plt.pie(
+            df[y],
+            labels=df[x],
+            autopct='%1.1f%%'
         )
+        plt.title(title or f"{y} by {x}")
 
     else:
         raise ValueError(f"Unsupported chart_type: {chart_type}")
 
-    fig.write_image(output_path)  # requires kaleido
+    # Adjust layout and save
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+
     return output_path
