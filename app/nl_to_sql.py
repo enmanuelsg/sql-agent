@@ -2,10 +2,12 @@ import os
 import openai
 import json
 from dotenv import load_dotenv
+from langsmith import traceable
 
 from config import OPENAI_API_KEY, OPENAI_MODEL_NAME
 openai.api_key = OPENAI_API_KEY
 
+@traceable
 def convert_nl_to_sql(user_query: str) -> str:
     """
     Converts a natural language query about predictive maintenance into an SQL query.
@@ -20,7 +22,16 @@ def convert_nl_to_sql(user_query: str) -> str:
         "name": "nl_to_sql",
         "description": (
             "Convert a natural language query regarding predictive maintenance into a SQL query for a SQLite database. "
-            "Output a valid SQL query that targets tables such as PdM_machines, PdM_maint, etc."
+            "The only valid tables are: PdM_machines, PdM_telemetry, PdM_errors, PdM_maint, PdM_failures." 
+            "Convert a natural language query regarding predictive maintenance into a SQL query for a SQLite database. "
+            "The database has exactly these tables:\n"
+            "- PdM_machines (machineID, model, age)\n"
+            "- PdM_telemetry (machineID, volt, rotate, pressure, vibration, date, time)\n"
+            "- PdM_errors (machineID, errorID, date, time)\n"
+            "- PdM_maint (machineID, comp, date, time)\n"
+            "- PdM_failures (machineID, failure, date, time)\n"
+           "If user says “errors”, map it to PdM_errors. "
+             "Return only valid SQL in a JSON object under the key 'sql_query'."
         ),
         "parameters": {
             "type": "object",

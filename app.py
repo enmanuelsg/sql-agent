@@ -11,6 +11,10 @@ from app.tools import tools
 from app.prompt import PredictiveMaintenancePromptTemplate, template
 from utils.db_utils import get_schema_info
 
+from langsmith import Client
+#from langsmith.wrappers import OpenAIAgentsTracingProcessor
+from langchain.callbacks.tracers import LangChainTracer
+
 # Initialize prompt and agent
 prompt = PredictiveMaintenancePromptTemplate(
     template=template,
@@ -23,6 +27,11 @@ llm = ChatOpenAI(
     temperature=OPENAI_TEMPERATURE,
     streaming=True
 )
+
+# —– LangSmith tracing: attach the OpenAI Agents tracing processor
+client = Client()  # reads LANGCHAIN_API_KEY, ENDPOINT, PROJECT from your .env
+tracer = LangChainTracer(client=client)
+
 # Enable parsing errors to be surfaced
 agent = initialize_agent(
     tools,
@@ -31,8 +40,10 @@ agent = initialize_agent(
     verbose=True,
     prompt=prompt,
     return_intermediate_steps=True,
-    handle_parsing_errors=True
+    handle_parsing_errors=True,
+    callbacks=[tracer]
 )
+
 
 @cl.on_chat_start
 async def on_chat_start():

@@ -4,18 +4,21 @@ import json
 import pandas as pd
 
 from langchain.agents import Tool
+from langsmith import traceable
 
 from app.nl_to_sql import convert_nl_to_sql
 from utils.db_utils import execute_query, get_schema_info
 from utils.plot_utils import generate_plot
 from config import PLOT_OUTPUT_PATH
 
+@traceable
 def nl_to_sql_tool(input_text: str) -> str:
     """
     Converts a natural language query about predictive maintenance into a SQL query.
     """
     return convert_nl_to_sql(input_text)
 
+@traceable
 def execute_sql_tool(sql_query: str) -> str:
     """
     Executes a SQL query on the predictive maintenance database and returns the results
@@ -24,6 +27,7 @@ def execute_sql_tool(sql_query: str) -> str:
     result = execute_query(sql_query)
     return json.dumps(result)
 
+@traceable
 def plot_tool(params: str) -> str:
     """
     Given a JSON string with keys:
@@ -59,6 +63,7 @@ def plot_tool(params: str) -> str:
         ylabel=args.get("ylabel"),
     )
 
+@traceable
 def get_schema_tool(_: str) -> str:
     """
     Tool to get database schema information for debugging.
