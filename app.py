@@ -1,8 +1,37 @@
+import os
 import re
 import json
+import logging
 
+import agentops
+from agentops.integration.callbacks.langchain import LangchainCallbackHandler
+
+# ─── Logging Setup ─────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("agentops").setLevel(logging.DEBUG)
+
+# ─── Initialize AgentOps BEFORE importing LLMs ─────────────────────────────────
+API_KEY = os.getenv("AGENTOPS_API_KEY")
+if not API_KEY:
+    raise ValueError("AGENTOPS_API_KEY environment variable is not set or empty")
+
+# Initialize AgentOps with explicit configuration
+agentops.init(
+    api_key=API_KEY,
+    instrument_llm_calls=False,  # disable auto patching; rely on callback handler
+    tags=["SQL-AGENT"]
+)
+print("AgentOps initialized successfully")
+
+# ─── Shared AgentOps Callback Handler ──────────────────────────────────────────
+handler = LangchainCallbackHandler(
+    api_key=API_KEY,
+    tags=["SQL-AGENT"]
+)
+
+# ─── Now import and configure your agent dependencies ─────────────────────────
 import chainlit as cl
-from langchain_community.chat_models import ChatOpenAI
+from langchain.chat_models import ChatOpenAI
 from langchain.agents import initialize_agent, AgentExecutor
 from langchain.schema import AgentAction
 
@@ -11,7 +40,7 @@ from app.tools import tools
 from app.prompt import PredictiveMaintenancePromptTemplate, template
 from utils.db_utils import get_schema_info
 
-# Initialize prompt and agent
+# ─── Prompt & Agent Initialization ─────────────────────────────────────────────
 prompt = PredictiveMaintenancePromptTemplate(
     template=template,
     tools=tools,
@@ -21,9 +50,10 @@ prompt = PredictiveMaintenancePromptTemplate(
 llm = ChatOpenAI(
     model_name=OPENAI_MODEL_NAME,
     temperature=OPENAI_TEMPERATURE,
-    streaming=True
+    streaming=True,
+    callbacks=[handler]  # instrument all LLM calls via callback
 )
-# Enable parsing errors to be surfaced
+
 agent = initialize_agent(
     tools,
     llm,
@@ -31,24 +61,16 @@ agent = initialize_agent(
     verbose=True,
     prompt=prompt,
     return_intermediate_steps=True,
-    handle_parsing_errors=True
+    handle_parsing_errors=True,
+    callbacks=[handler]  # instrument agent orchestration
 )
 
+# ─── Chainlit Event Handlers ──────────────────────────────────────────────────
 @cl.on_chat_start
 async def on_chat_start():
     cl.user_session.set("agent", agent)
-    schema_info = get_schema_info()
-    print("Database Schema Information:")
-    print(schema_info)
-
-async def _process_agent_response(agent: AgentExecutor, user_input: str):
-    try:
-        result = await agent.acall({"input": user_input})
-        return result.get("intermediate_steps", [])
-    except Exception as e:
-        # Send parsing or execution errors back to the user
-        await cl.Message(content=f"❌ Agent error: {e}").send()
-        return []
+    schema = get_schema_info()
+    print("Database schema loaded:", schema)
 
 async def _handle_plotting_response(
     action: AgentAction,
@@ -58,28 +80,23 @@ async def _handle_plotting_response(
     params = json.loads(action.tool_input)
     sql = params.get("sql", "")
 
-    # Usamos el final_answer como Summary
     await cl.Message(content=f"**Summary:** {final_answer}").send()
-
     if isinstance(observation, str) and observation.lower().endswith(".png"):
         img = cl.Image(path=observation, name="plot", display="inline")
         await cl.Message(content="**Result:**", elements=[img]).send()
     else:
         await cl.Message(content=f"**Result:** Plotting error: {observation}").send()
-
     await cl.Message(content=f"**SQL Used:** {sql}").send()
-
 
 async def _handle_sql_response(
     action: AgentAction,
     observation: str,
     final_answer: str
 ):
-    sql_json = json.loads(observation)
-    query = sql_json.get("query", "")
-    table = sql_json.get("markdown_table", "No results.")
+    result = json.loads(observation)
+    table = result.get("markdown_table", "No results.")
+    query = result.get("query", "")
 
-    # Usamos el final_answer como Summary
     await cl.Message(content=f"**Summary:** {final_answer}").send()
     await cl.Message(content=f"**Result:**\n{table}").send()
     await cl.Message(content=f"**SQL Used:** {query}").send()
@@ -88,10 +105,13 @@ async def _handle_sql_response(
 async def on_message(message: cl.Message):
     agent: AgentExecutor = cl.user_session.get("agent")
 
-    # Ejecuta el agente con streaming y logging de tools en la UI
+    # Execute agent with both AgentOps callback and Chainlit UI callback
     result = await agent.acall(
         {"input": message.content},
-        callbacks=[cl.LangchainCallbackHandler(stream_final_answer=False)]
+        callbacks=[
+            handler,
+            cl.LangchainCallbackHandler(stream_final_answer=False)
+        ]
     )
 
     steps = result.get("intermediate_steps", [])
@@ -99,19 +119,17 @@ async def on_message(message: cl.Message):
     if not steps:
         return
 
-    # 1) Check plotting
     for action, obs in steps:
         if action.tool == "Plotting Tool":
             await _handle_plotting_response(action, obs, final_answer)
             return
-
-    # 2) Check SQL
-    for action, obs in steps:
         if action.tool == "SQL Execution Tool":
             await _handle_sql_response(action, obs, final_answer)
             return
 
-    # 3) Fallback
-    await cl.Message(
-        content="❌ I never executed a recognized tool. Please rephrase your query or ask for schema info."
-    ).send()
+    await cl.Message(content="❌ No recognized tool executed.").send()
+
+@cl.on_chat_end
+async def on_chat_end():
+    # End session so spans flush to dashboard
+    agentops.end_session("Success")

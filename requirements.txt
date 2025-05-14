@@ -9,3 +9,4 @@ plotly
 matplotlib
 kaleido
 python-dotenv
+agentops[langchain]
