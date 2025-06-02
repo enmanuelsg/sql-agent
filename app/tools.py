@@ -2,13 +2,13 @@
 
 import json
 import pandas as pd
+import plotly.express as px
+from plotly.graph_objects import Figure
 
 from langchain.agents import Tool
 
 from app.nl_to_sql import convert_nl_to_sql
-from utils.db_utils import execute_query, get_schema_info
-from utils.plot_utils import generate_plot
-from config import PLOT_OUTPUT_PATH
+from utils.db_utils import execute_query
 
 def nl_to_sql_tool(input_text: str) -> str:
     """
@@ -24,7 +24,7 @@ def execute_sql_tool(sql_query: str) -> str:
     result = execute_query(sql_query)
     return json.dumps(result)
 
-def plot_tool(params: str) -> str:
+def plot_tool(params: str) -> Figure:
     """
     Given a JSON string with keys:
       - sql: string, the SQL to run
@@ -33,31 +33,44 @@ def plot_tool(params: str) -> str:
       - chart_type: optional, "line" or "pie"
       - title, xlabel, ylabel: optional strings
 
-    Runs the query, builds the specified chart, saves it to PLOT_OUTPUT_PATH, and
-    returns the path to the generated image.
+    Runs the query, builds an interactive Plotly figure in memory, and returns it.
     """
     args = json.loads(params)
-    
-    # Run SQL and load into DataFrame
+
+    # 1. Execute SQL and load into DataFrame
     result = execute_query(args["sql"])
     records = result.get("data", [])
     df = pd.DataFrame(records)
     if df.empty:
         raise ValueError("No data returned for plotting.")
-    
-    # Determine chart type
+
+    # 2. Build Plotly figure based on chart_type
     chart_type = args.get("chart_type", "line")
-    
-    return generate_plot(
-        df=df,
-        x=args.get("x"),
-        y=args.get("y"),
-        output_path=str(PLOT_OUTPUT_PATH),
-        chart_type=chart_type,
-        title=args.get("title"),
-        xlabel=args.get("xlabel"),
-        ylabel=args.get("ylabel"),
-    )
+    if chart_type == "line":
+        fig = px.line(
+            df,
+            x=args.get("x"),
+            y=args.get("y"),
+            title=args.get("title"),
+            labels={
+                args.get("x"): args.get("xlabel", args.get("x")),
+                args.get("y"): args.get("ylabel", args.get("y")),
+            },
+        )
+        fig.update_traces(mode="markers+lines")
+    elif chart_type == "pie":
+        fig = px.pie(
+            df,
+            names=args.get("x"),
+            values=args.get("y"),
+            title=args.get("title"),
+        )
+    else:
+        raise ValueError(f"Unsupported chart_type: {chart_type}")
+
+    # 3. Return the Plotly Figure object
+    return fig
+
 
 def get_schema_tool(_: str) -> str:
     """
