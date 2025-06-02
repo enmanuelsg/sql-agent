@@ -5,6 +5,7 @@ import chainlit as cl
 from langchain_community.chat_models import ChatOpenAI
 from langchain.agents import initialize_agent, AgentExecutor
 from langchain.schema import AgentAction
+from plotly.graph_objects import Figure
 
 from config import OPENAI_MODEL_NAME, OPENAI_TEMPERATURE
 from app.tools import tools
@@ -52,7 +53,7 @@ async def _process_agent_response(agent: AgentExecutor, user_input: str):
 
 async def _handle_plotting_response(
     action: AgentAction,
-    observation: str,
+    observation: any,
     final_answer: str
 ):
     params = json.loads(action.tool_input)
@@ -61,10 +62,12 @@ async def _handle_plotting_response(
     # Usamos el final_answer como Summary
     await cl.Message(content=f"**Summary:** {final_answer}").send()
 
-    if isinstance(observation, str) and observation.lower().endswith(".png"):
-        img = cl.Image(path=observation, name="plot", display="inline")
-        await cl.Message(content="**Result:**", elements=[img]).send()
+    if isinstance(observation, Figure):
+        # Using Chainlit’s Plotly element (interactive) :contentReference[oaicite:2]{index=2}
+        plot_element = cl.Plotly(name="chart", figure=observation, display="inline")
+        await cl.Message(content="**Result:**", elements=[plot_element]).send()
     else:
+        # Otherwise, show an error or fallback text
         await cl.Message(content=f"**Result:** Plotting error: {observation}").send()
 
     await cl.Message(content=f"**SQL Used:** {sql}").send()
