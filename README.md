@@ -2,6 +2,8 @@
 
 An interactive chat interface that lets you ask questions about your SQL data in everyday language and then presents the results as tables or visual charts.
 
+![Demo](image/SQL-Agent2.gif)
+
 ## Features
 - Convert natural language into SQL via OpenAI  
 - Execute queries on SQLite  
