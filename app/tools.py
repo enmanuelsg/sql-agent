@@ -8,7 +8,7 @@ from plotly.graph_objects import Figure
 from langchain.agents import Tool
 
 from app.nl_to_sql import convert_nl_to_sql
-from utils.db_utils import execute_query
+from utils.db_utils import execute_query, get_schema_info
 
 def nl_to_sql_tool(input_text: str) -> str:
     """
